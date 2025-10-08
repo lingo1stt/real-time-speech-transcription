@@ -520,9 +520,9 @@
                 // 常見的中文冗詞列表
                 this.fillerWords = [
                     '然後', '就是', '這個', '那個', '嗯', '啊', '呃', '對', 
-                    '就', '其實', '的話', '應該', '可能', '基本上', '大概',
-                    '就是說', '怎麼說', '怎麼講', '什麼', '之類的', '等等',
-                    '那', '這樣', '這樣子', '那樣', '一個', '有點', '還是'
+                    '就', '其實', '應該', '大概',
+                    '就是說', '怎麼說', '怎麼講', '什麼', '之類的', 
+                    '那', '這樣', '這樣子', '那樣' 
                 ];
                 
                 this.fillerCounts = {};
@@ -548,6 +548,32 @@
                 this.fillerTableBody = document.getElementById('fillerTableBody');
                 this.totalFillers = document.getElementById('totalFillers');
                 this.fillerRate = document.getElementById('fillerRate');
+                
+                this.newFillerInput = document.getElementById('newFillerInput');
+                this.addFillerBtn = document.getElementById('addFillerBtn');
+                this.resetFillerBtn = document.getElementById('resetFillerBtn');
+            }
+            addCustomFiller() {
+              const newWord = this.newFillerInput.value.trim();
+              if (!newWord) return;
+              
+              if (this.fillerWords.includes(newWord)) {
+                this.showError('這個詞已經在清單中');
+                return;
+              }
+              
+              this.fillerWords.push(newWord);
+              this.newFillerInput.value = '';
+            }
+
+            resetFillerList() {
+              this.fillerWords = [
+                  '然後', '就是', '這個', '那個', '嗯', '啊', '呃', '對', 
+                  '就', '其實','可能', '大概',
+                  '就是說', '怎麼說', '怎麼講', '什麼', '之類的',
+                  '那', '這樣', '這樣子', '那樣',
+              ];
+              this.clearTranscript();
             }
 
             checkBrowserSupport() {
