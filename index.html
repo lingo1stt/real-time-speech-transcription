@@ -602,6 +602,8 @@
                         setTimeout(() => this.startListening(), 100);
                     }
                 });
+                this.addFillerBtn.addEventListener('click', () => this.addCustomFiller());
+                this.resetFillerBtn.addEventListener('click', () => this.resetFillerList());
             }
 
             setupRecognition() {
