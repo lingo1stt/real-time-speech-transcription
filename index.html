@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>即時語音轉文字工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .control-panel {
+            background: rgba(255,255,255,0.95);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 50px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-start {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+            color: white;
+        }
+
+        .btn-start:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(238, 90, 82, 0.4);
+        }
+
+        .btn-stop {
+            background: linear-gradient(135deg, #4ecdc4, #44a08d);
+            color: white;
+        }
+
+        .btn-stop:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(68, 160, 141, 0.4);
+        }
+
+        .btn-clear {
+            background: linear-gradient(135deg, #ffa726, #fb8c00);
+            color: white;
+        }
+
+        .btn-clear:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 167, 38, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .status-listening {
+            background: rgba(76, 175, 80, 0.2);
+            color: #2e7d32;
+            border: 2px solid rgba(76, 175, 80, 0.3);
+        }
+
+        .status-stopped {
+            background: rgba(158, 158, 158, 0.2);
+            color: #424242;
+            border: 2px solid rgba(158, 158, 158, 0.3);
+        }
+
+        .pulse {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4caf50;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        .settings {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .setting-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .setting-group label {
+            font-weight: 500;
+            color: #333;
+        }
+
+        .setting-group select, .setting-group input {
+            padding: 6px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .transcript-container, .analysis-container {
+            background: rgba(255,255,255,0.95);
+            border-radius: 20px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+
+        .transcript-container {
+            min-height: 400px;
+        }
+
+        .transcript-header, .analysis-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .transcript-title, .analysis-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .word-count {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .transcript-content {
+            font-size: 18px;
+            line-height: 1.8;
+            color: #333;
+            min-height: 300px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .interim-text {
+            color: #888;
+            font-style: italic;
+        }
+
+        .final-text {
+            color: #333;
+        }
+
+        .filler-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        .filler-table th {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .filler-table th:first-child {
+            border-radius: 10px 0 0 0;
+        }
+
+        .filler-table th:last-child {
+            border-radius: 0 10px 0 0;
+        }
+
+        .filler-table td {
+            padding: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 14px;
+        }
+
+        .filler-table tr:hover {
+            background: rgba(102, 126, 234, 0.05);
+        }
+
+        .filler-word {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .filler-count {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-weight: 600;
+            display: inline-block;
+            min-width: 30px;
+            text-align: center;
+        }
+
+        .filler-percentage {
+            color: #888;
+            font-size: 13px;
+        }
+
+        .no-fillers {
+            text-align: center;
+            color: #888;
+            padding: 40px 20px;
+            font-size: 14px;
+        }
+
+        .no-fillers-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        .stats-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+            padding: 15px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .browser-warning {
+            background: linear-gradient(135deg, #ffa726, #fb8c00);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .error-message {
+            background: linear-gradient(135deg, #ef5350, #e53935);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .footer {
+            text-align: center;
+            color: rgba(255,255,255,0.8);
+            margin-top: 30px;
+            font-size: 14px;
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .control-panel, .transcript-container, .analysis-container {
+                padding: 20px;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .btn {
+                justify-content: center;
+            }
+            
+            .settings {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .stats-summary {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 即時語音轉文字工具</h1>
+            <p>幫助講者即時檢視自己的發言內容，減少冗言贅字</p>
+        </div>
+
+        <div id="browserWarning" class="browser-warning" style="display: none;">
+            ⚠️ 建議使用 Chrome 瀏覽器以獲得最佳體驗。您的瀏覽器可能不支援語音識別功能。
+        </div>
+
+        <div id="errorMessage" class="error-message" style="display: none;"></div>
+
+        <div class="control-panel">
+            <div class="controls">
+                <button id="startBtn" class="btn btn-start">
+                    <span>🎤</span> 開始錄音
+                </button>
+                <button id="stopBtn" class="btn btn-stop" disabled>
+                    <span>⏹️</span> 停止錄音
+                </button>
+                <button id="clearBtn" class="btn btn-clear">
+                    <span>🗑️</span> 清除內容
+                </button>
+            </div>
+
+            <div class="status">
+                <div id="statusIndicator" class="status-indicator status-stopped">
+                    <div class="pulse" style="background: #666; animation: none;"></div>
+                    <span>準備就緒</span>
+                </div>
+            </div>
+
+            <div class="settings">
+                <div class="setting-group">
+                    <label for="languageSelect">語言：</label>
+                    <select id="languageSelect">
+                        <option value="zh-TW">繁體中文（台灣）</option>
+                        <option value="zh-CN">簡體中文</option>
+                        <option value="en-US">英語（美國）</option>
+                        <option value="ja-JP">日語</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label for="fontSize">字體大小：</label>
+                    <input type="range" id="fontSize" min="14" max="28" value="18">
+                    <span id="fontSizeValue">18px</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="transcript-container">
+                <div class="transcript-header">
+                    <div class="transcript-title">📝 轉錄內容</div>
+                    <div class="word-count">字數：<span id="wordCount">0</span></div>
+                </div>
+                <div id="transcript" class="transcript-content">點擊「開始錄音」開始語音轉文字...</div>
+            </div>
+
+            <div class="analysis-container">
+                <div class="analysis-header">
+                    <div class="analysis-title">📊 冗言贅字分析</div>
+                </div>
+                
+                <div class="stats-summary">
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalFillers">0</div>
+                        <div class="stat-label">冗詞總數</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="fillerRate">0%</div>
+                        <div class="stat-label">冗詞比例</div>
+                    </div>
+                </div>
+
+                <div class="filler-settings">
+                    <div class="add-filler-form">
+                        <input type="text" id="newFillerInput" placeholder="新增要偵測的詞" maxlength="10">
+                        <button id="addFillerBtn" class="btn-add-filler">➕ 新增</button>
+                    </div>
+                    <div class="filler-list-container">
+                        <div class="filler-list-header">
+                            <span>偵測清單</span>
+                            <button id="resetFillerBtn" class="btn-reset">重設為預設</button>
+                        </div>
+                        <div id="fillerList" class="filler-list"></div>
+                    </div>
+                </div>
+
+                <div id="fillerTableContainer">
+                    <table class="filler-table" id="fillerTable">
+                        <thead>
+                            <tr>
+                                <th>冗詞</th>
+                                <th>出現次數</th>
+                                <th>佔比</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fillerTableBody">
+                            <tr>
+                                <td colspan="3" class="no-fillers">
+                                    <div class="no-fillers-icon">✨</div>
+                                    <div>開始說話後，這裡會顯示冗言贅字統計</div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            💡 提示：工具會自動重新連接以避免 60 秒限制，建議在安靜環境中使用
+        </div>
+    </div>
+
+    <script>
+        class SpeechToTextTool {
+            constructor() {
+                this.recognition = null;
+                this.isListening = false;
+                this.finalTranscript = '';
+                this.interimTranscript = '';
+                this.restartTimer = null;
+                
+                // 常見的中文冗詞列表
+                this.fillerWords = [
+                    '然後', '就是', '這個', '那個', '嗯', '啊', '呃', '對', 
+                    '就', '其實', '的話', '應該', '可能', '基本上', '大概',
+                    '就是說', '怎麼說', '怎麼講', '什麼', '之類的', '等等',
+                    '那', '這樣', '這樣子', '那樣', '一個', '有點', '還是'
+                ];
+                
+                this.fillerCounts = {};
+                
+                this.initElements();
+                this.checkBrowserSupport();
+                this.initEventListeners();
+                this.setupRecognition();
+            }
+
+            initElements() {
+                this.startBtn = document.getElementById('startBtn');
+                this.stopBtn = document.getElementById('stopBtn');
+                this.clearBtn = document.getElementById('clearBtn');
+                this.transcript = document.getElementById('transcript');
+                this.statusIndicator = document.getElementById('statusIndicator');
+                this.languageSelect = document.getElementById('languageSelect');
+                this.fontSize = document.getElementById('fontSize');
+                this.fontSizeValue = document.getElementById('fontSizeValue');
+                this.wordCount = document.getElementById('wordCount');
+                this.browserWarning = document.getElementById('browserWarning');
+                this.errorMessage = document.getElementById('errorMessage');
+                this.fillerTableBody = document.getElementById('fillerTableBody');
+                this.totalFillers = document.getElementById('totalFillers');
+                this.fillerRate = document.getElementById('fillerRate');
+            }
+
+            checkBrowserSupport() {
+                if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                    this.browserWarning.style.display = 'block';
+                    this.startBtn.disabled = true;
+                    return false;
+                }
+                return true;
+            }
+
+            initEventListeners() {
+                this.startBtn.addEventListener('click', () => this.startListening());
+                this.stopBtn.addEventListener('click', () => this.stopListening());
+                this.clearBtn.addEventListener('click', () => this.clearTranscript());
+                
+                this.fontSize.addEventListener('input', (e) => {
+                    const size = e.target.value;
+                    this.transcript.style.fontSize = size + 'px';
+                    this.fontSizeValue.textContent = size + 'px';
+                });
+
+                this.languageSelect.addEventListener('change', () => {
+                    if (this.isListening) {
+                        this.stopListening();
+                        setTimeout(() => this.startListening(), 100);
+                    }
+                });
+            }
+
+            setupRecognition() {
+                if (!this.checkBrowserSupport()) return;
+
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                this.recognition = new SpeechRecognition();
+
+                this.recognition.continuous = true;
+                this.recognition.interimResults = true;
+                this.recognition.maxAlternatives = 1;
+
+                this.recognition.onstart = () => {
+                    this.isListening = true;
+                    this.updateStatus('listening', '正在聆聽...');
+                    this.startBtn.disabled = true;
+                    this.stopBtn.disabled = false;
+                    this.hideError();
+                };
+
+                this.recognition.onresult = (event) => {
+                    this.interimTranscript = '';
+                    let newFinalTranscript = '';
+
+                    for (let i = event.resultIndex; i < event.results.length; i++) {
+                        const transcript = event.results[i][0].transcript;
+                        if (event.results[i].isFinal) {
+                            newFinalTranscript += transcript + ' ';
+                        } else {
+                            this.interimTranscript += transcript;
+                        }
+                    }
+
+                    if (newFinalTranscript) {
+                        this.finalTranscript += newFinalTranscript;
+                        this.analyzeFillers(newFinalTranscript);
+                    }
+
+                    this.updateTranscript();
+                    this.updateFillerTable();
+                };
+
+                this.recognition.onend = () => {
+                    if (this.isListening) {
+                        this.restartTimer = setTimeout(() => {
+                            try {
+                                this.recognition.start();
+                            } catch (e) {
+                                console.log('重新啟動識別失敗:', e);
+                                this.handleError('重新連接失敗，請手動重新開始');
+                            }
+                        }, 100);
+                    }
+                };
+
+                this.recognition.onerror = (event) => {
+                    let errorMsg = '發生錯誤：';
+                    
+                    switch(event.error) {
+                        case 'no-speech':
+                            errorMsg += '未檢測到語音，請確認麥克風正常工作';
+                            break;
+                        case 'audio-capture':
+                            errorMsg += '無法存取麥克風，請檢查權限設定';
+                            break;
+                        case 'not-allowed':
+                            errorMsg += '麥克風權限被拒絕，請允許網站存取麥克風';
+                            break;
+                        case 'network':
+                            errorMsg += '網路連接問題，請檢查網路狀態';
+                            break;
+                        case 'service-not-allowed':
+                            errorMsg += '語音識別服務不可用';
+                            break;
+                        default:
+                            errorMsg += event.error;
+                    }
+                    
+                    this.handleError(errorMsg);
+                };
+            }
+
+            analyzeFillers(text) {
+                this.fillerWords.forEach(filler => {
+                    const regex = new RegExp(filler, 'g');
+                    const matches = text.match(regex);
+                    if (matches) {
+                        this.fillerCounts[filler] = (this.fillerCounts[filler] || 0) + matches.length;
+                    }
+                });
+            }
+
+            updateFillerTable() {
+                const sortedFillers = Object.entries(this.fillerCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .filter(([word, count]) => count > 0);
+
+                const totalWords = this.finalTranscript.trim().length;
+                const totalFillerCount = sortedFillers.reduce((sum, [word, count]) => sum + count, 0);
+
+                // 更新統計摘要
+                this.totalFillers.textContent = totalFillerCount;
+                const rate = totalWords > 0 ? ((totalFillerCount / totalWords) * 100).toFixed(1) : 0;
+                this.fillerRate.textContent = rate + '%';
+
+                // 更新表格
+                if (sortedFillers.length === 0) {
+                    this.fillerTableBody.innerHTML = `
+                        <tr>
+                            <td colspan="3" class="no-fillers">
+                                <div class="no-fillers-icon">🎉</div>
+                                <div>太好了！目前沒有檢測到冗言贅字</div>
+                            </td>
+                        </tr>
+                    `;
+                } else {
+                    this.fillerTableBody.innerHTML = sortedFillers.map(([word, count]) => {
+                        const percentage = totalWords > 0 ? ((count / totalWords) * 100).toFixed(1) : 0;
+                        return `
+                            <tr>
+                                <td><span class="filler-word">${word}</span></td>
+                                <td><span class="filler-count">${count}</span></td>
+                                <td><span class="filler-percentage">${percentage}%</span></td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            }
+
+            startListening() {
+                if (!this.recognition) {
+                    this.handleError('語音識別不可用');
+                    return;
+                }
+
+                try {
+                    this.recognition.lang = this.languageSelect.value;
+                    this.recognition.start();
+                } catch (e) {
+                    this.handleError('無法啟動語音識別：' + e.message);
+                }
+            }
+
+            stopListening() {
+                this.isListening = false;
+                
+                if (this.restartTimer) {
+                    clearTimeout(this.restartTimer);
+                    this.restartTimer = null;
+                }
+                
+                if (this.recognition) {
+                    this.recognition.stop();
+                }
+                
+                this.updateStatus('stopped', '已停止');
+                this.startBtn.disabled = false;
+                this.stopBtn.disabled = true;
+            }
+
+            clearTranscript() {
+                this.finalTranscript = '';
+                this.interimTranscript = '';
+                this.fillerCounts = {};
+                this.updateTranscript();
+                this.updateFillerTable();
+            }
+
+            updateTranscript() {
+                const fullTranscript = this.finalTranscript;
+                const interimText = this.interimTranscript;
+
+                if (!fullTranscript && !interimText) {
+                    this.transcript.innerHTML = '點擊「開始錄音」開始語音轉文字...';
+                    this.wordCount.textContent = '0';
+                } else {
+                    this.transcript.innerHTML = 
+                        `<span class="final-text">${this.escapeHtml(fullTranscript)}</span>` +
+                        `<span class="interim-text">${this.escapeHtml(interimText)}</span>`;
+                    
+                    const wordCount = (fullTranscript + interimText).trim().length;
+                    this.wordCount.textContent = wordCount;
+                }
+            }
+
+            updateStatus(status, text) {
+                const indicator = this.statusIndicator;
+                const pulse = indicator.querySelector('.pulse');
+                const span = indicator.querySelector('span');
+
+                if (status === 'listening') {
+                    indicator.className = 'status-indicator status-listening';
+                    pulse.style.background = '#4caf50';
+                    pulse.style.animation = 'pulse 1.5s infinite';
+                } else {
+                    indicator.className = 'status-indicator status-stopped';
+                    pulse.style.background = '#666';
+                    pulse.style.animation = 'none';
+                }
+
+                span.textContent = text;
+            }
+
+            handleError(message) {
+                this.stopListening();
+                this.showError(message);
+            }
+
+            showError(message) {
+                this.errorMessage.textContent = message;
+                this.errorMessage.style.display = 'block';
+                setTimeout(() => this.hideError(), 5000);
+            }
+
+            hideError() {
+                this.errorMessage.style.display = 'none';
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            new SpeechToTextTool();
+        });
+    </script>
+</body>
+</html>
