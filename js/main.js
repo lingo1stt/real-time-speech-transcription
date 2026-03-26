@@ -56,7 +56,9 @@ class SpeechToTextApp {
         this.ui.bindStart(() => this.startListening());
         this.ui.bindStop(() => this.stopListening());
         this.ui.bindClear(() => this.clearTranscript());
+        this.ui.bindExportTxt(() => this.exportTranscriptAsTxt());
 
+        
         this.ui.bindLanguageChange(() => {
             if (this.speech.getListeningState()) {
                 this.stopListening();
@@ -88,7 +90,31 @@ class SpeechToTextApp {
             this.ui.showError('已重設為預設冗詞清單');
         });
     }
+    
+    exportTranscriptAsTxt() {
+        const content = this.finalTranscript.trim();
+        if (!content) {
+            this.ui.showError('目前沒有可匯出的文字內容');
+            return;
+        }
+        const now = new Date();
+        const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
+        const fileContent =`即時語音轉文字匯出檔 匯出時間：${now.toLocaleString('zh-TW')}語言：${this.ui.getLanguage()}
+        ====================
+        ${content}
+        `;
 
+        const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `transcript_${timestamp}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        }
+    
     startListening() {
         try {
             this.speech.start(this.ui.getLanguage());
