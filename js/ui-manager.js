@@ -20,6 +20,7 @@ export class UIManager {
         this.addFillerBtn = document.getElementById('addFillerBtn');
         this.resetFillerBtn = document.getElementById('resetFillerBtn');
         this.fillerList = document.getElementById('fillerList');
+        this.exportTxtBtn = document.getElementById('exportTxtBtn');
     }
 
     bindFontSizeChange(callback) {
