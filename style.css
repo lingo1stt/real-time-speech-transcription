@@ -142,6 +142,15 @@ body {
     50% { opacity: 0.5; transform: scale(1.2); }
     100% { opacity: 1; transform: scale(1); }
 }
+.btn-export {
+    background: linear-gradient(135deg, #5c6bc0, #3949ab);
+    color: white;
+}
+
+.btn-export:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(57, 73, 171, 0.4);
+}
 
 .settings {
     display: flex;
