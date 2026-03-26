@@ -22,7 +22,11 @@ export class UIManager {
         this.fillerList = document.getElementById('fillerList');
         this.exportTxtBtn = document.getElementById('exportTxtBtn');
     }
-
+    
+    bindExportTxt(callback) {
+        this.exportTxtBtn.addEventListener('click', callback);
+    }    
+    
     bindFontSizeChange(callback) {
         this.fontSize.addEventListener('input', (e) => {
             const size = e.target.value;
