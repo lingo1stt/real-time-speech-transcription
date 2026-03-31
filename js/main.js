@@ -27,6 +27,10 @@ class SpeechToTextApp {
                 this.renderTranscript();
                 this.renderFillerAnalysis();
             },
+            onReconnectAttempt: ({ attempt, maxAttempts, delay }) => {
+                const seconds = (delay / 1000).toFixed(delay >= 1000 ? 1 : 0);
+                this.ui.updateStatus('listening', `連線中斷，${seconds} 秒後重試（${attempt}/${maxAttempts}）`);
+            },
             onEndRestartFail: (message) => {
                 this.handleError(message);
             },
