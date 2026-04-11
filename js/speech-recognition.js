@@ -1,13 +1,19 @@
 export class SpeechRecognitionManager {
-    constructor({ onStart, onResult, onEndRestartFail, onError } = {}) {
+    constructor({ onStart, onResult, onEndRestartFail, onError, onReconnectAttempt } = {}) {
         this.recognition = null;
         this.isListening = false;
         this.restartTimer = null;
+        this.restartAttempts = 0;
+        this.baseRestartDelay = 300;
+        this.maxRestartDelay = 5000;
+        this.maxRestartAttempts = 8;
+        this.shouldRestart = false;
 
         this.onStart = onStart;
         this.onResult = onResult;
         this.onEndRestartFail = onEndRestartFail;
         this.onError = onError;
+        this.onReconnectAttempt = onReconnectAttempt;
     }
 
     isSupported() {
@@ -26,6 +32,8 @@ export class SpeechRecognitionManager {
 
         this.recognition.onstart = () => {
             this.isListening = true;
+            this.shouldRestart = true;
+            this.restartAttempts = 0;
             this.onStart?.();
         };
 
@@ -49,21 +57,21 @@ export class SpeechRecognitionManager {
         };
 
         this.recognition.onend = () => {
-            if (this.isListening) {
-                this.restartTimer = setTimeout(() => {
-                    try {
-                        this.recognition.start();
-                    } catch (e) {
-                        this.onEndRestartFail?.('重新連接失敗，請手動重新開始');
-                    }
-                }, 100);
+            if (this.shouldRestart) {
+                this.scheduleRestart();
             }
         };
 
         this.recognition.onerror = (event) => {
+            const error = event.error;
+
+            if (error === 'not-allowed' || error === 'service-not-allowed' || error === 'audio-capture') {
+                this.shouldRestart = false;
+            }
+
             let errorMsg = '發生錯誤：';
 
-            switch (event.error) {
+            switch (error) {
                 case 'no-speech':
                     errorMsg += '未檢測到語音，請確認麥克風正常工作';
                     break;
@@ -80,13 +88,51 @@ export class SpeechRecognitionManager {
                     errorMsg += '語音識別服務不可用';
                     break;
                 default:
-                    errorMsg += event.error;
+                    errorMsg += error;
             }
 
-            this.onError?.(errorMsg);
+            if (!this.shouldRestart) {
+                this.onError?.(errorMsg);
+            }
         };
 
         return true;
+    }
+
+    scheduleRestart() {
+        if (!this.recognition || !this.shouldRestart) return;
+
+        if (this.restartTimer) {
+            clearTimeout(this.restartTimer);
+            this.restartTimer = null;
+        }
+
+        if (this.restartAttempts >= this.maxRestartAttempts) {
+            this.shouldRestart = false;
+            this.isListening = false;
+            this.onEndRestartFail?.('語音中斷多次，請手動重新開始');
+            return;
+        }
+
+        const delay = Math.min(
+            this.baseRestartDelay * (2 ** this.restartAttempts),
+            this.maxRestartDelay
+        );
+
+        this.onReconnectAttempt?.({
+            attempt: this.restartAttempts + 1,
+            maxAttempts: this.maxRestartAttempts,
+            delay
+        });
+
+        this.restartAttempts += 1;
+        this.restartTimer = setTimeout(() => {
+            try {
+                this.recognition.start();
+            } catch (e) {
+                this.scheduleRestart();
+            }
+        }, delay);
     }
 
     start(language) {
@@ -94,12 +140,21 @@ export class SpeechRecognitionManager {
             throw new Error('語音識別尚未初始化');
         }
 
+        if (this.restartTimer) {
+            clearTimeout(this.restartTimer);
+            this.restartTimer = null;
+        }
+
+        this.shouldRestart = true;
+        this.restartAttempts = 0;
         this.recognition.lang = language;
         this.recognition.start();
     }
 
     stop() {
         this.isListening = false;
+        this.shouldRestart = false;
+        this.restartAttempts = 0;
 
         if (this.restartTimer) {
             clearTimeout(this.restartTimer);
