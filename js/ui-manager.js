@@ -78,7 +78,11 @@ export class UIManager {
         this.newFillerInput.value = '';
     }
 
-    showBrowserWarning() {
+    showBrowserWarning(message) {
+        if (message) {
+            this.browserWarning.textContent = message;
+        }
+
         this.browserWarning.style.display = 'block';
     }
 

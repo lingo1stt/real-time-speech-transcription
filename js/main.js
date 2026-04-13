@@ -1,6 +1,6 @@
 import { UIManager } from './ui-manager.js';
 import { FillerManager } from './filler-manager.js';
-import { SpeechRecognitionManager } from './speech-recognition.js';
+import { AudioCaptureManager } from './speech-recognition.js';
 
 class SpeechToTextApp {
     constructor() {
@@ -9,30 +9,30 @@ class SpeechToTextApp {
 
         this.finalTranscript = '';
         this.interimTranscript = '';
+        this.pendingChunks = [];
+        this.totalRecordedMs = 0;
 
-        this.speech = new SpeechRecognitionManager({
-            onStart: () => {
-                this.ui.updateStatus('listening', '正在聆聽...');
+        this.audioCapture = new AudioCaptureManager({
+            onStart: ({ chunkIntervalMs }) => {
+                this.ui.updateStatus('listening', `錄音中，每 ${Math.round(chunkIntervalMs / 1000)} 秒切一段`);
                 this.ui.setListeningState(true);
                 this.ui.hideError();
-            },
-            onResult: ({ newFinalTranscript, interimTranscript }) => {
-                this.interimTranscript = interimTranscript;
-
-                if (newFinalTranscript) {
-                    this.finalTranscript += newFinalTranscript;
-                    this.fillerManager.analyzeText(newFinalTranscript);
-                }
-
+                this.interimTranscript = '正在擷取音訊片段，等待後端轉錄服務串接。';
                 this.renderTranscript();
-                this.renderFillerAnalysis();
             },
-            onReconnectAttempt: ({ attempt, maxAttempts, delay }) => {
-                const seconds = (delay / 1000).toFixed(delay >= 1000 ? 1 : 0);
-                this.ui.updateStatus('listening', `連線中斷，${seconds} 秒後重試（${attempt}/${maxAttempts}）`);
+            onStop: () => {
+                this.ui.updateStatus('stopped', '已停止錄音');
+                this.ui.setListeningState(false);
+                if (!this.finalTranscript) {
+                    this.interimTranscript = '錄音已停止。下一步可把 chunk 上傳到後端轉錄 API。';
+                    this.renderTranscript();
+                }
             },
-            onEndRestartFail: (message) => {
-                this.handleError(message);
+            onChunk: (chunk) => {
+                this.pendingChunks.push(chunk);
+                this.totalRecordedMs += chunk.durationMs;
+                this.interimTranscript = `已擷取 ${this.pendingChunks.length} 段音訊，累計 ${(this.totalRecordedMs / 1000).toFixed(0)} 秒，等待後端轉錄。`;
+                this.renderTranscript();
             },
             onError: (message) => {
                 this.handleError(message);
@@ -43,9 +43,9 @@ class SpeechToTextApp {
     }
 
     init() {
-        const supported = this.speech.init();
+        const supported = this.audioCapture.init();
         if (!supported) {
-            this.ui.showBrowserWarning();
+            this.ui.showBrowserWarning('目前裝置無法直接錄音。請使用支援 MediaRecorder 的瀏覽器，並透過 HTTPS 或 localhost 開啟此頁面。');
             this.ui.setListeningState(false);
             this.ui.startBtn.disabled = true;
         }
@@ -62,11 +62,10 @@ class SpeechToTextApp {
         this.ui.bindClear(() => this.clearTranscript());
         this.ui.bindExportTxt(() => this.exportTranscriptAsTxt());
 
-        
         this.ui.bindLanguageChange(() => {
-            if (this.speech.getListeningState()) {
-                this.stopListening();
-                setTimeout(() => this.startListening(), 100);
+            if (this.audioCapture.getRecordingState()) {
+                this.interimTranscript = '語言設定已更新。錄音 chunk 會帶著新設定送往未來的轉錄服務。';
+                this.renderTranscript();
             }
         });
 
@@ -91,22 +90,25 @@ class SpeechToTextApp {
             this.fillerManager.recalculateFromTranscript(this.finalTranscript);
             this.renderFillerList();
             this.renderFillerAnalysis();
-            this.ui.showError('已重設為預設冗詞清單');
+            this.ui.showError('已重設贅詞清單');
         });
     }
-    
+
     exportTranscriptAsTxt() {
         const content = this.finalTranscript.trim();
         if (!content) {
-            this.ui.showError('目前沒有可匯出的文字內容');
+            this.ui.showError('目前還沒有可匯出的轉錄文字。');
             return;
         }
+
         const now = new Date();
         const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
-        const fileContent =`即時語音轉文字匯出檔 匯出時間：${now.toLocaleString('zh-TW')}語言：${this.ui.getLanguage()}
-        ====================
-        ${content}
-        `;
+        const fileContent = `語音轉錄匯出
+匯出時間: ${now.toLocaleString('zh-TW')}
+語言: ${this.ui.getLanguage()}
+====================
+${content}
+`;
 
         const blob = new Blob([fileContent], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -117,25 +119,25 @@ class SpeechToTextApp {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-        }
-    
-    startListening() {
+    }
+
+    async startListening() {
         try {
-            this.speech.start(this.ui.getLanguage());
-        } catch (e) {
-            this.handleError(`無法啟動語音識別：${e.message}`);
+            await this.audioCapture.start();
+        } catch (error) {
+            this.handleError(error.message);
         }
     }
 
     stopListening() {
-        this.speech.stop();
-        this.ui.updateStatus('stopped', '已停止');
-        this.ui.setListeningState(false);
+        this.audioCapture.stop();
     }
 
     clearTranscript() {
         this.finalTranscript = '';
         this.interimTranscript = '';
+        this.pendingChunks = [];
+        this.totalRecordedMs = 0;
         this.fillerManager.clearCounts();
         this.renderTranscript();
         this.renderFillerAnalysis();
@@ -161,7 +163,13 @@ class SpeechToTextApp {
     }
 
     handleError(message) {
-        this.stopListening();
+        if (this.audioCapture.getRecordingState()) {
+            this.audioCapture.stop();
+        } else {
+            this.ui.updateStatus('stopped', '已停止錄音');
+            this.ui.setListeningState(false);
+        }
+
         this.ui.showError(message);
     }
 }

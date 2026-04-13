@@ -1,172 +1,153 @@
-export class SpeechRecognitionManager {
-    constructor({ onStart, onResult, onEndRestartFail, onError, onReconnectAttempt } = {}) {
-        this.recognition = null;
-        this.isListening = false;
-        this.restartTimer = null;
-        this.restartAttempts = 0;
-        this.baseRestartDelay = 300;
-        this.maxRestartDelay = 5000;
-        this.maxRestartAttempts = 8;
-        this.shouldRestart = false;
-
+export class AudioCaptureManager {
+    constructor({
+        onStart,
+        onStop,
+        onChunk,
+        onError
+    } = {}) {
         this.onStart = onStart;
-        this.onResult = onResult;
-        this.onEndRestartFail = onEndRestartFail;
+        this.onStop = onStop;
+        this.onChunk = onChunk;
         this.onError = onError;
-        this.onReconnectAttempt = onReconnectAttempt;
+
+        this.mediaRecorder = null;
+        this.stream = null;
+        this.isRecording = false;
+        this.chunkIntervalMs = 4000;
+        this.chunkSequence = 0;
+        this.mimeType = '';
     }
 
     isSupported() {
-        return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+        return window.isSecureContext &&
+            typeof navigator.mediaDevices?.getUserMedia === 'function' &&
+            typeof window.MediaRecorder !== 'undefined';
     }
 
     init() {
-        if (!this.isSupported()) return false;
-
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        this.recognition = new SpeechRecognition();
-
-        this.recognition.continuous = true;
-        this.recognition.interimResults = true;
-        this.recognition.maxAlternatives = 1;
-
-        this.recognition.onstart = () => {
-            this.isListening = true;
-            this.shouldRestart = true;
-            this.restartAttempts = 0;
-            this.onStart?.();
-        };
-
-        this.recognition.onresult = (event) => {
-            let interimTranscript = '';
-            let newFinalTranscript = '';
-
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-                const transcript = event.results[i][0].transcript;
-                if (event.results[i].isFinal) {
-                    newFinalTranscript += `${transcript} `;
-                } else {
-                    interimTranscript += transcript;
-                }
-            }
-
-            this.onResult?.({
-                newFinalTranscript,
-                interimTranscript
-            });
-        };
-
-        this.recognition.onend = () => {
-            if (this.shouldRestart) {
-                this.scheduleRestart();
-            }
-        };
-
-        this.recognition.onerror = (event) => {
-            const error = event.error;
-
-            if (error === 'not-allowed' || error === 'service-not-allowed' || error === 'audio-capture') {
-                this.shouldRestart = false;
-            }
-
-            let errorMsg = '發生錯誤：';
-
-            switch (error) {
-                case 'no-speech':
-                    errorMsg += '未檢測到語音，請確認麥克風正常工作';
-                    break;
-                case 'audio-capture':
-                    errorMsg += '無法存取麥克風，請檢查權限設定';
-                    break;
-                case 'not-allowed':
-                    errorMsg += '麥克風權限被拒絕，請允許網站存取麥克風';
-                    break;
-                case 'network':
-                    errorMsg += '網路連接問題，請檢查網路狀態';
-                    break;
-                case 'service-not-allowed':
-                    errorMsg += '語音識別服務不可用';
-                    break;
-                default:
-                    errorMsg += error;
-            }
-
-            if (!this.shouldRestart) {
-                this.onError?.(errorMsg);
-            }
-        };
-
-        return true;
+        return this.isSupported();
     }
 
-    scheduleRestart() {
-        if (!this.recognition || !this.shouldRestart) return;
+    getRecordingState() {
+        return this.isRecording;
+    }
 
-        if (this.restartTimer) {
-            clearTimeout(this.restartTimer);
-            this.restartTimer = null;
-        }
+    getChunkIntervalMs() {
+        return this.chunkIntervalMs;
+    }
 
-        if (this.restartAttempts >= this.maxRestartAttempts) {
-            this.shouldRestart = false;
-            this.isListening = false;
-            this.onEndRestartFail?.('語音中斷多次，請手動重新開始');
+    async start() {
+        if (this.isRecording) {
             return;
         }
 
-        const delay = Math.min(
-            this.baseRestartDelay * (2 ** this.restartAttempts),
-            this.maxRestartDelay
-        );
-
-        this.onReconnectAttempt?.({
-            attempt: this.restartAttempts + 1,
-            maxAttempts: this.maxRestartAttempts,
-            delay
-        });
-
-        this.restartAttempts += 1;
-        this.restartTimer = setTimeout(() => {
-            try {
-                this.recognition.start();
-            } catch (e) {
-                this.scheduleRestart();
-            }
-        }, delay);
-    }
-
-    start(language) {
-        if (!this.recognition) {
-            throw new Error('語音識別尚未初始化');
+        if (!this.isSupported()) {
+            throw new Error('目前環境不支援錄音。請使用 HTTPS 或 localhost，並確認瀏覽器支援 MediaRecorder。');
         }
 
-        if (this.restartTimer) {
-            clearTimeout(this.restartTimer);
-            this.restartTimer = null;
-        }
+        try {
+            this.stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
 
-        this.shouldRestart = true;
-        this.restartAttempts = 0;
-        this.recognition.lang = language;
-        this.recognition.start();
+            this.mimeType = this.getPreferredMimeType();
+            const options = this.mimeType ? { mimeType: this.mimeType } : undefined;
+
+            this.mediaRecorder = new MediaRecorder(this.stream, options);
+            this.mediaRecorder.addEventListener('dataavailable', (event) => {
+                if (!event.data || event.data.size === 0) {
+                    return;
+                }
+
+                this.chunkSequence += 1;
+                this.onChunk?.({
+                    chunkId: this.chunkSequence,
+                    blob: event.data,
+                    mimeType: event.data.type || this.mimeType || 'audio/webm',
+                    durationMs: this.chunkIntervalMs
+                });
+            });
+
+            this.mediaRecorder.addEventListener('stop', () => {
+                this.cleanupStream();
+                this.isRecording = false;
+                this.onStop?.();
+            });
+
+            this.mediaRecorder.addEventListener('error', (event) => {
+                this.handleFatalError(event.error?.message || '錄音時發生錯誤。');
+            });
+
+            this.mediaRecorder.start(this.chunkIntervalMs);
+            this.isRecording = true;
+            this.chunkSequence = 0;
+            this.onStart?.({
+                mimeType: this.mimeType || 'audio/webm',
+                chunkIntervalMs: this.chunkIntervalMs
+            });
+        } catch (error) {
+            this.cleanupStream();
+            throw this.normalizeStartError(error);
+        }
     }
 
     stop() {
-        this.isListening = false;
-        this.shouldRestart = false;
-        this.restartAttempts = 0;
-
-        if (this.restartTimer) {
-            clearTimeout(this.restartTimer);
-            this.restartTimer = null;
+        if (!this.mediaRecorder) {
+            return;
         }
 
-        if (this.recognition) {
-            this.recognition.stop();
+        if (this.mediaRecorder.state !== 'inactive') {
+            this.mediaRecorder.stop();
+        } else {
+            this.cleanupStream();
+            this.isRecording = false;
+            this.onStop?.();
+        }
+
+        this.mediaRecorder = null;
+    }
+
+    getPreferredMimeType() {
+        const candidates = [
+            'audio/webm;codecs=opus',
+            'audio/webm',
+            'audio/mp4',
+            'audio/ogg;codecs=opus'
+        ];
+
+        return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || '';
+    }
+
+    normalizeStartError(error) {
+        switch (error?.name) {
+            case 'NotAllowedError':
+            case 'PermissionDeniedError':
+                return new Error('麥克風權限被拒絕，請允許瀏覽器存取麥克風。');
+            case 'NotFoundError':
+            case 'DevicesNotFoundError':
+                return new Error('找不到可用的麥克風裝置。');
+            case 'NotReadableError':
+            case 'TrackStartError':
+                return new Error('麥克風目前無法使用，可能被其他程式占用。');
+            default:
+                return new Error(error?.message || '無法啟動錄音。');
         }
     }
 
-    getListeningState() {
-        return this.isListening;
+    handleFatalError(message) {
+        this.stop();
+        this.onError?.(message);
+    }
+
+    cleanupStream() {
+        if (this.stream) {
+            this.stream.getTracks().forEach((track) => track.stop());
+            this.stream = null;
+        }
     }
 }
