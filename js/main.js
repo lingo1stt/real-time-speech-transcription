@@ -1,38 +1,61 @@
 import { UIManager } from './ui-manager.js';
 import { FillerManager } from './filler-manager.js';
 import { AudioCaptureManager } from './speech-recognition.js';
+import { TranscriptionClient } from './transcription-client.js';
 
 class SpeechToTextApp {
     constructor() {
         this.ui = new UIManager();
         this.fillerManager = new FillerManager();
+        this.transcriptionClient = new TranscriptionClient();
 
         this.finalTranscript = '';
         this.interimTranscript = '';
-        this.pendingChunks = [];
+        this.recordedChunkCount = 0;
         this.totalRecordedMs = 0;
+        this.sessionId = '';
 
         this.audioCapture = new AudioCaptureManager({
             onStart: ({ chunkIntervalMs }) => {
-                this.ui.updateStatus('listening', `錄音中，每 ${Math.round(chunkIntervalMs / 1000)} 秒切一段`);
+                this.sessionId = this.createSessionId();
+                this.recordedChunkCount = 0;
+                this.totalRecordedMs = 0;
+                this.ui.updateStatus('listening', `Recording and uploading ${Math.round(chunkIntervalMs / 1000)}s chunks`);
                 this.ui.setListeningState(true);
                 this.ui.hideError();
-                this.interimTranscript = '正在擷取音訊片段，等待後端轉錄服務串接。';
+                this.interimTranscript = 'Capturing audio and sending chunks to /transcribe-chunk...';
                 this.renderTranscript();
             },
             onStop: () => {
-                this.ui.updateStatus('stopped', '已停止錄音');
+                this.ui.updateStatus('stopped', 'Recording stopped');
                 this.ui.setListeningState(false);
                 if (!this.finalTranscript) {
-                    this.interimTranscript = '錄音已停止。下一步可把 chunk 上傳到後端轉錄 API。';
+                    this.interimTranscript = 'Recording stopped. If the backend is running, uploaded chunks will continue finishing in order.';
                     this.renderTranscript();
                 }
             },
-            onChunk: (chunk) => {
-                this.pendingChunks.push(chunk);
+            onChunk: async (chunk) => {
+                this.recordedChunkCount += 1;
                 this.totalRecordedMs += chunk.durationMs;
-                this.interimTranscript = `已擷取 ${this.pendingChunks.length} 段音訊，累計 ${(this.totalRecordedMs / 1000).toFixed(0)} 秒，等待後端轉錄。`;
+                this.interimTranscript = `Uploading chunk ${chunk.chunkId}. Recorded ${this.recordedChunkCount} chunks / ${(this.totalRecordedMs / 1000).toFixed(0)}s.`;
                 this.renderTranscript();
+
+                try {
+                    const result = await this.transcriptionClient.enqueue({
+                        sessionId: this.sessionId,
+                        chunkId: chunk.chunkId,
+                        chunk: chunk.blob,
+                        language: this.ui.getLanguage(),
+                        mimeType: chunk.mimeType,
+                        startMs: chunk.startMs,
+                        endMs: chunk.endMs,
+                        durationMs: chunk.durationMs
+                    });
+
+                    this.applyTranscriptionResult(result);
+                } catch (error) {
+                    this.handleError(error.message);
+                }
             },
             onError: (message) => {
                 this.handleError(message);
@@ -45,7 +68,7 @@ class SpeechToTextApp {
     init() {
         const supported = this.audioCapture.init();
         if (!supported) {
-            this.ui.showBrowserWarning('目前裝置無法直接錄音。請使用支援 MediaRecorder 的瀏覽器，並透過 HTTPS 或 localhost 開啟此頁面。');
+            this.ui.showBrowserWarning('Recording requires HTTPS or localhost plus a browser that supports MediaRecorder.');
             this.ui.setListeningState(false);
             this.ui.startBtn.disabled = true;
         }
@@ -64,7 +87,7 @@ class SpeechToTextApp {
 
         this.ui.bindLanguageChange(() => {
             if (this.audioCapture.getRecordingState()) {
-                this.interimTranscript = '語言設定已更新。錄音 chunk 會帶著新設定送往未來的轉錄服務。';
+                this.interimTranscript = 'Language updated. New chunks will be uploaded with the new language value.';
                 this.renderTranscript();
             }
         });
@@ -90,22 +113,22 @@ class SpeechToTextApp {
             this.fillerManager.recalculateFromTranscript(this.finalTranscript);
             this.renderFillerList();
             this.renderFillerAnalysis();
-            this.ui.showError('已重設贅詞清單');
+            this.ui.showError('Filler list has been reset.');
         });
     }
 
     exportTranscriptAsTxt() {
         const content = this.finalTranscript.trim();
         if (!content) {
-            this.ui.showError('目前還沒有可匯出的轉錄文字。');
+            this.ui.showError('There is no transcript to export yet.');
             return;
         }
 
         const now = new Date();
         const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
-        const fileContent = `語音轉錄匯出
-匯出時間: ${now.toLocaleString('zh-TW')}
-語言: ${this.ui.getLanguage()}
+        const fileContent = `Speech transcript export
+Exported at: ${now.toLocaleString('zh-TW')}
+Language: ${this.ui.getLanguage()}
 ====================
 ${content}
 `;
@@ -136,9 +159,22 @@ ${content}
     clearTranscript() {
         this.finalTranscript = '';
         this.interimTranscript = '';
-        this.pendingChunks = [];
+        this.recordedChunkCount = 0;
         this.totalRecordedMs = 0;
+        this.sessionId = '';
         this.fillerManager.clearCounts();
+        this.renderTranscript();
+        this.renderFillerAnalysis();
+    }
+
+    applyTranscriptionResult(result) {
+        if (result.appendText) {
+            this.finalTranscript += result.appendText;
+            this.fillerManager.analyzeText(result.appendText);
+        }
+
+        const queueCount = this.transcriptionClient.getPendingCount();
+        this.interimTranscript = result.text || `Chunk ${result.chunkId} uploaded. Pending uploads: ${queueCount}.`;
         this.renderTranscript();
         this.renderFillerAnalysis();
     }
@@ -162,11 +198,19 @@ ${content}
         this.ui.renderFillerTable(summary, totalWords);
     }
 
+    createSessionId() {
+        if (typeof crypto?.randomUUID === 'function') {
+            return crypto.randomUUID();
+        }
+
+        return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+
     handleError(message) {
         if (this.audioCapture.getRecordingState()) {
             this.audioCapture.stop();
         } else {
-            this.ui.updateStatus('stopped', '已停止錄音');
+            this.ui.updateStatus('stopped', 'Recording stopped');
             this.ui.setListeningState(false);
         }
 

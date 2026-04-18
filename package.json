@@ -1,0 +1,14 @@
+{
+  "name": "real-time-speech-transcription",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server/server.js",
+    "check:config": "node -e \"import('./server/config.js').then(({ getServerConfig, validateServerConfig }) => { validateServerConfig(getServerConfig()); console.log('config ok'); })\""
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "multer": "^2.0.2"
+  }
+}

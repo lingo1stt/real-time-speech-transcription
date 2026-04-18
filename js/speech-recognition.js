@@ -16,6 +16,7 @@ export class AudioCaptureManager {
         this.chunkIntervalMs = 4000;
         this.chunkSequence = 0;
         this.mimeType = '';
+        this.recordingStartedAt = 0;
     }
 
     isSupported() {
@@ -32,17 +33,13 @@ export class AudioCaptureManager {
         return this.isRecording;
     }
 
-    getChunkIntervalMs() {
-        return this.chunkIntervalMs;
-    }
-
     async start() {
         if (this.isRecording) {
             return;
         }
 
         if (!this.isSupported()) {
-            throw new Error('目前環境不支援錄音。請使用 HTTPS 或 localhost，並確認瀏覽器支援 MediaRecorder。');
+            throw new Error('Recording is unavailable. Open this page over HTTPS or localhost in a browser with MediaRecorder support.');
         }
 
         try {
@@ -65,11 +62,16 @@ export class AudioCaptureManager {
                 }
 
                 this.chunkSequence += 1;
+                const chunkEndMs = Date.now() - this.recordingStartedAt;
+                const chunkStartMs = Math.max(0, chunkEndMs - this.chunkIntervalMs);
+
                 this.onChunk?.({
                     chunkId: this.chunkSequence,
                     blob: event.data,
                     mimeType: event.data.type || this.mimeType || 'audio/webm',
-                    durationMs: this.chunkIntervalMs
+                    durationMs: this.chunkIntervalMs,
+                    startMs: chunkStartMs,
+                    endMs: chunkEndMs
                 });
             });
 
@@ -80,12 +82,14 @@ export class AudioCaptureManager {
             });
 
             this.mediaRecorder.addEventListener('error', (event) => {
-                this.handleFatalError(event.error?.message || '錄音時發生錯誤。');
+                this.handleFatalError(event.error?.message || 'A recording error occurred.');
             });
 
+            this.chunkSequence = 0;
+            this.recordingStartedAt = Date.now();
             this.mediaRecorder.start(this.chunkIntervalMs);
             this.isRecording = true;
-            this.chunkSequence = 0;
+
             this.onStart?.({
                 mimeType: this.mimeType || 'audio/webm',
                 chunkIntervalMs: this.chunkIntervalMs
@@ -127,15 +131,15 @@ export class AudioCaptureManager {
         switch (error?.name) {
             case 'NotAllowedError':
             case 'PermissionDeniedError':
-                return new Error('麥克風權限被拒絕，請允許瀏覽器存取麥克風。');
+                return new Error('Microphone permission was denied. Allow microphone access in your browser and phone settings.');
             case 'NotFoundError':
             case 'DevicesNotFoundError':
-                return new Error('找不到可用的麥克風裝置。');
+                return new Error('No microphone was found on this device.');
             case 'NotReadableError':
             case 'TrackStartError':
-                return new Error('麥克風目前無法使用，可能被其他程式占用。');
+                return new Error('The microphone is currently unavailable, possibly because another app is using it.');
             default:
-                return new Error(error?.message || '無法啟動錄音。');
+                return new Error(error?.message || 'Unable to start recording.');
         }
     }
 
